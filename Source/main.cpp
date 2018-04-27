@@ -4,95 +4,95 @@
 #include <string>
 #include <stdexcept>
 #include <cstdlib>
-#include <regex>
+#include <sstream>
+#include "Args.hpp"
+#include <atomic>
+#include <ctime>
 
 using namespace std;
 using namespace std::chrono;
 
-/*
-	Matches number-type, such as:
+using String = std::string;
+using SStream = std::stringstream;
+using HighResClock = std::chrono::high_resolution_clock;
+using SystemClock = std::chrono::system_clock;
+template<class T>
+using TimePoint = std::chrono::time_point<T>;
+using Seconds = std::chrono::seconds;
+using Milliseconds = std::chrono::milliseconds;
+using Thread = std::thread;
+using RuntimeError = std::runtime_error;
 
-	-- 1h30m => 1 hour, 30 minutes
-	-- 1w2d => 1 week, 2 days
+// Globals
+Args args;
 
-	Accepted types are: w, d, h, m, s, ms
-*/
-static const regex pattern(R"(([0-9]+)([A-z]+))");
+// Prototypes
 
-milliseconds parse(string str) {
-	auto t = 0ms;
-	smatch match;
-	unsigned long long n;
-	string s;
+void now();
+void countdown();
+void timer();
+void stopwatch();
 
-	while (regex_search(str, match, pattern)) {
-		n = stoull(match[1].str());
-		s = match[2].str();
+int main(int argc, char** argv) {
+	try {
+		args.parse(argc, argv);
 
-		switch (s[0]) {
-		case 'w':
-			t += hours(24 * 7 * n);
-		case 'd':
-			t += hours(24 * n);
-		case 'h':
-			t += hours(n);
+		switch (args.mode) {
+		default:
+		case Args::Mode::Now:
+			now();
 			break;
-		case 'm':
-			if (s[1] == 's')
-				t += milliseconds(n);
-			else
-				t += minutes(n);
+		case Args::Mode::Countdown:
+			countdown();
 			break;
-		case 's':
-			t += seconds(n);
+		case Args::Mode::Timer:
+			timer();
+			break;
+		case Args::Mode::Stopwatch:
+			stopwatch();
 			break;
 		}
-
-		str = match.suffix();
-	}
-
-	if (t.count() == 0)
-		throw runtime_error("parse() returned 0");
-
-	return t;
-}
-
-string get_display() {
-
-}
-
-bool sound_alarm = true;
-void alarm() {
-	while (sound_alarm) {
-		cout << '\a';
-		this_thread::sleep_for(1s);
-	}
-}
-
-int main() {
-	string input_str;
-	getline(cin, input_str);
-	
-	milliseconds end;
-
-	try {
-		end = parse(input_str);
-	} catch (...) {
+	} catch (const RuntimeError& e) {
+		cerr << e.what() << '\n';
 		return EXIT_FAILURE;
 	}
 
-	auto start = high_resolution_clock::now();
+	return EXIT_SUCCESS;
+}
 
-	high_resolution_clock::duration diff;
-	time_point<high_resolution_clock> curr, last;
+void now() {
+	using days = duration <size_t, ratio_multiply<hours::period, ratio<24>>::type>;
+
+	time_t t = SystemClock::to_time_t(SystemClock::now());
+	tm _tm;
+
+	localtime_s(&_tm, &t);
+
+	char buf[256];
+	asctime_s(buf, &_tm);
+
+	cout << buf << '\n';
+}
+
+String get_display(Milliseconds time_left) {
+	SStream ss;
+	ss << time_left.count() / 1000 << 's';
+	return ss.str();
+}
+
+void countdown() {
+	auto start = HighResClock::now();
+
+	HighResClock::duration diff;
+	TimePoint<HighResClock> curr, last;
 	bool has_displayed = false;
 
 	cout << '\n';
 
-	while ((diff = (curr = high_resolution_clock::now()) - start) < end) {
+	while ((diff = (curr = HighResClock::now()) - start) < args.countdown_value) {
 		if (curr - last > 1s) {
 			if (!has_displayed) {
-				cout << duration_cast<seconds>(end - diff).count() + 1 << "s\n";
+				cout << get_display(duration_cast<Milliseconds>(args.countdown_value - diff) + 1s) << '\n';
 				has_displayed = true;
 				last = curr;
 			}
@@ -103,10 +103,23 @@ int main() {
 
 	cout << "\nFINISHED! Press enter to quit...\n";
 
-	thread alarm_thread(alarm);
-	cin.get();
-	sound_alarm = false;
+	atomic<bool> sound_alarm = true;
+	Thread alarm_thread([&]() -> void {
+		while (sound_alarm) {
+			cout << '\a';
+			this_thread::sleep_for(1s);
+		}
+	});
 	alarm_thread.detach();
 
-	return EXIT_SUCCESS;
+	cin.get();
+	sound_alarm = false;
+}
+
+void timer() {
+
+}
+
+void stopwatch() {
+
 }
